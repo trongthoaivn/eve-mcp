@@ -1,119 +1,351 @@
-#Requires -Version 5.1<#.SYNOPSIS EVE-MCP Server - One-click Internet Installer.DESCRIPTION Installs Python 3.14,
-    downloads eve-mcp source from GitHub, sets up a Python virtual environment, installs all dependencies, and
-    configures agent platforms (Antigravity IDE/CLI, Claude Desktop)..USAGE irm
-    https://raw.githubusercontent.com/trongthoaivn/eve-mcp/main/startup.ps1 | iex.NOTES Requires: Windows 10/11,
-    PowerShell 5.1+, Internet access#>Set-StrictMode -Version Latest$ErrorActionPreference = "Stop"#
-    ============================================================# CONFIGURATION#
-    ============================================================$GITHUB_REPO = "trongthoaivn/eve-mcp"$GITHUB_BRANCH =
-    "main"$PYTHON_VERSION = "3.14.0b3"$PYTHON_MAJOR = "3.14"$INSTALL_DIR =
-    "$env:USERPROFILE\AppData\Local\eve-mcp"$TEMP_DIR = "$env:TEMP\eve-mcp-install"$ZIP_PATH =
-    "$TEMP_DIR\eve-mcp.zip"$SOURCE_DIR = "$TEMP_DIR\source"$BUILD_DIR = "$SOURCE_DIR\build"$VENV_DIR =
-    "$BUILD_DIR\.venv"$VENV_PYTHON = "$VENV_DIR\Scripts\python.exe"$AGY_IDE_CONFIG =
-    "$env:USERPROFILE\.gemini\config\mcp_config.json"$AGY_CLI_CONFIG =
-    "$env:USERPROFILE\.gemini\antigravity-cli\mcp_config.json"$CLAUDE_CONFIG =
-    "$env:APPDATA\Claude\claude_desktop_config.json"$AGY_IDE_SKILLS =
-    "$env:USERPROFILE\.gemini\config\skills"$AGY_CLI_SKILLS = "$env:USERPROFILE\.gemini\antigravity-cli\skills"#
-    ============================================================# HELPERS#
-    ============================================================function Write-Banner { Write-Host "" Write-Host "
-    ============================================================" -ForegroundColor Cyan Write-Host " EVE-MCP Server |
-    Internet Installer" -ForegroundColor Cyan Write-Host " Repository : https://github.com/$GITHUB_REPO"
-    -ForegroundColor Cyan Write-Host " Python : $PYTHON_VERSION" -ForegroundColor Cyan Write-Host "
-    ============================================================" -ForegroundColor Cyan Write-Host ""}function
-    Write-Step([string]$msg) { Write-Host ""; Write-Host " [STEP] $msg" -ForegroundColor Yellow }function
-    Write-OK([string]$msg) { Write-Host " [OK] $msg" -ForegroundColor Green }function Write-Info([string]$msg) {
-    Write-Host " [..] $msg" -ForegroundColor Gray }function Write-Err([string]$msg) { Write-Host " [!!] $msg"
-    -ForegroundColor Red }function Invoke-WithRetry([scriptblock]$action, [int]$retries = 3) { for ($i = 1; $i -le
-    $retries; $i++) { try { & $action; return } catch { if ($i -eq $retries) { throw } Write-Info "Retry $i/$retries
-    ..." Start-Sleep -Seconds 3 } }}# ============================================================# STEP 1: Check /
-    Install Python 3.14# ============================================================function Install-Python {
-    Write-Step "1/5 Checking Python $PYTHON_MAJOR ..." $pythonExe = $null # Check py launcher if (Get-Command py
-    -ErrorAction SilentlyContinue) { $ver = (& py "-$PYTHON_MAJOR" --version 2>&1) if ($LASTEXITCODE -eq 0 -and "$ver"
-    -match "Python $PYTHON_MAJOR") { Write-OK "Found via py launcher: $ver" return "py" } } # Check python in PATH if
-    (Get-Command python -ErrorAction SilentlyContinue) { $ver = (& python --version 2>&1) if ("$ver" -match "Python
-    $PYTHON_MAJOR") { Write-OK "Found in PATH: $ver" return "python" } } # Download and install $arch = if
-    ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "win32" } $pyInstaller =
-    "$TEMP_DIR\python-$PYTHON_VERSION-$arch.exe" $pyUrl =
-    "https://www.python.org/ftp/python/$PYTHON_VERSION/python-$PYTHON_VERSION-$arch.exe" New-Item -ItemType Directory
-    -Force -Path $TEMP_DIR | Out-Null Write-Info "Downloading Python $PYTHON_VERSION from python.org ..."
-    Invoke-WithRetry { Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -UseBasicParsing } Write-OK "Downloaded
-    Python installer." Write-Info "Installing Python $PYTHON_VERSION (silent) ..." $args = "/quiet InstallAllUsers=0
-    PrependPath=1 Include_pip=1 Include_test=0 Include_launcher=1" $proc = Start-Process -FilePath $pyInstaller
-    -ArgumentList $args -Wait -PassThru if ($proc.ExitCode -ne 0) { throw "Python installer failed (exit
-    $($proc.ExitCode))." } Write-OK "Python installed." # Refresh PATH $env:PATH =
-    [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" +
-    [System.Environment]::GetEnvironmentVariable("PATH","User") if (Get-Command py -ErrorAction SilentlyContinue) { $ver
-    = (& py "-$PYTHON_MAJOR" --version 2>&1) if ($LASTEXITCODE -eq 0) { Write-OK "Verified: $ver"; return "py" } } if
-    (Get-Command python -ErrorAction SilentlyContinue) { $ver = (& python --version 2>&1) if ("$ver" -match "Python
-    $PYTHON_MAJOR") { Write-OK "Verified: $ver"; return "python" } } throw "Python $PYTHON_MAJOR installed but not found
-    in PATH. Please restart PowerShell and re-run."}# ============================================================# STEP
-    2: Download source ZIP from GitHub# ============================================================function
-    Download-Source { Write-Step "2/5 Downloading source from GitHub ..." $zipUrl =
-    "https://github.com/$GITHUB_REPO/archive/refs/heads/$GITHUB_BRANCH.zip" if (Test-Path $TEMP_DIR) { Remove-Item
-    -Recurse -Force $TEMP_DIR } New-Item -ItemType Directory -Force -Path $TEMP_DIR | Out-Null New-Item -ItemType
-    Directory -Force -Path $SOURCE_DIR | Out-Null Write-Info "URL: $zipUrl" Invoke-WithRetry { Invoke-WebRequest -Uri
-    $zipUrl -OutFile $ZIP_PATH -UseBasicParsing } Write-OK "Archive downloaded." Write-Info "Extracting ..." Add-Type
-    -AssemblyName System.IO.Compression.FileSystem [System.IO.Compression.ZipFile]::ExtractToDirectory($ZIP_PATH,
-    $TEMP_DIR) $extracted = Get-ChildItem -Path $TEMP_DIR -Directory | Where-Object { $_.Name -like "eve-mcp-*" } |
-    Select-Object -First 1 if (-not $extracted) { throw "Cannot find extracted source folder in $TEMP_DIR" }
-    Get-ChildItem -Path $extracted.FullName | Move-Item -Destination $SOURCE_DIR -Force Write-OK "Source ready at:
-    $SOURCE_DIR"}# ============================================================# STEP 3: Create venv + install
-    dependencies (mirrors build.bat)# ============================================================function
-    Setup-Venv([string]$pythonCmd) { Write-Step "3/5 Setting up virtual environment and installing dependencies ..."
-    New-Item -ItemType Directory -Force -Path $BUILD_DIR | Out-Null # Stage source files into build dir foreach ($d in
-    @("controllers","services","utilities","skills")) { $src = Join-Path $SOURCE_DIR $d if (Test-Path $src) { Copy-Item
-    -Recurse -Force $src (Join-Path $BUILD_DIR $d) } } foreach ($f in
-    @("server.py","configure_mcp.py","requirements.txt")) { $src = Join-Path $SOURCE_DIR $f if (Test-Path $src) {
-    Copy-Item -Force $src $BUILD_DIR } } Write-OK "Source staged to build dir." # Create venv if (Test-Path
-    $VENV_PYTHON) { Write-Info ".venv already exists, skipping creation." } else { Write-Info "Creating .venv ..." if
-    ($pythonCmd -eq "py") { & py "-$PYTHON_MAJOR" -m venv $VENV_DIR } else { & python -m venv $VENV_DIR } if
-    ($LASTEXITCODE -ne 0) { throw "Failed to create virtual environment." } Write-OK ".venv created." } # Upgrade pip
-    Write-Info "Upgrading pip ..." & $VENV_PYTHON -m pip install --upgrade pip --quiet Write-OK "pip upgraded." # eve-ng
-    (no-deps to avoid conflicts) Write-Info "Installing eve-ng ..." & $VENV_PYTHON -m pip install eve-ng==0.2.7
-    --no-deps --quiet if ($LASTEXITCODE -ne 0) { throw "pip install failed: eve-ng." } # All other dependencies
-    Write-Info "Installing remaining dependencies ..." & $VENV_PYTHON -m pip install ` fastmcp==3.4.2 ` httpx==0.28.1 `
-    python-dotenv==1.2.2 ` netmiko==4.4.0 ` requests ` "Jinja2<3.1.0" ` --quiet if ($LASTEXITCODE -ne 0) {
-        throw "pip install failed." } Write-OK "All dependencies installed."
-        }#============================================================# STEP 4: Copy build to AppData (mirrors
-        install.bat Step 1)#============================================================function Install-ToAppData {
-        Write-Step "4/5  Installing to AppData ..." if (-not (Test-Path $INSTALL_DIR)) { New-Item -ItemType Directory
-        -Force -Path $INSTALL_DIR | Out-Null } Copy-Item -Recurse -Force "$BUILD_DIR\*" $INSTALL_DIR
-        Write-OK "Installed to: $INSTALL_DIR" $envSrc=Join-Path $SOURCE_DIR ".env" if (Test-Path $envSrc) { Copy-Item
-        -Force $envSrc $INSTALL_DIR Write-OK ".env copied."
-        }}#============================================================# STEP 5: Configure agent platforms (mirrors
-        install.bat Step 2)#============================================================function Configure-Platforms {
-        Write-Step "5/5  Configuring agent platforms ..." $venvPython="$INSTALL_DIR\.venv\Scripts\python.exe"
-        $configScript="$INSTALL_DIR\configure_mcp.py" $installedPy=$venvPython -replace '\\' ,'/'
-        $installedSrv=($INSTALL_DIR + "\server.py" ) -replace '\\' ,'/' Write-Info "Using venv: $venvPython" # Load .env
-        into process environment so configure_mcp.py can read via os.environ $envFile=Join-Path $INSTALL_DIR ".env" if
-        (Test-Path $envFile) { Get-Content $envFile | ForEach-Object { if ($_ -match '^\s*([^#=][^=]*)=(.*)$' ) {
-        $k=$Matches[1].Trim(); $v=$Matches[2].Trim() [System.Environment]::SetEnvironmentVariable($k, $v, "Process" ) }
-        } Write-OK ".env loaded into process environment." } Write-Host "" Write-Host "  Select platforms to configure:"
-        -ForegroundColor Cyan Write-Host "    [1] Antigravity IDE" -ForegroundColor White
-        Write-Host "    [2] Antigravity CLI" -ForegroundColor White Write-Host "    [3] Claude Desktop" -ForegroundColor
-        White Write-Host "    [a] All platforms" -ForegroundColor White Write-Host ""
-        $choice=Read-Host "  Enter choices (e.g: 1 2 or a)" $doIde=$choice -match "[aA]" -or $choice -match "1"
-        $doCli=$choice -match "[aA]" -or $choice -match "2" $doClaude=$choice -match "[aA]" -or $choice -match "3" if
-        (-not ($doIde -or $doCli -or $doClaude)) { Write-Info "No platform selected. Skipping configuration." return } #
-        Delegate JSON config writing to configure_mcp.py (Python) function Invoke-ConfigureMcp([string]$configFile,
-        [bool]$withEnv) { $pyArgs=@( $configScript, "--config-file" , $configFile, "--command" , $installedPy, "--arg" ,
-        $installedSrv ) if ($withEnv) { $pyArgs +="--with-env" } & $venvPython @pyArgs if ($LASTEXITCODE -ne 0) {
-        throw "configure_mcp.py failed for: $configFile" } } function Copy-Skills([string]$dest) { $src=Join-Path
-        $SOURCE_DIR "skills" if (Test-Path $src) { if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Force
-        -Path $dest | Out-Null } Copy-Item -Recurse -Force "$src\*" $dest Write-OK "Skills -> $dest" } } if ($doIde) {
-        try { Copy-Skills $AGY_IDE_SKILLS; Invoke-ConfigureMcp $AGY_IDE_CONFIG $true;
-        Write-OK "Antigravity IDE configured." } catch { Write-Err "Antigravity IDE: $_" } } if ($doCli) { try {
-        Copy-Skills $AGY_CLI_SKILLS; Invoke-ConfigureMcp $AGY_CLI_CONFIG $true; Write-OK "Antigravity CLI configured." }
-        catch { Write-Err "Antigravity CLI: $_" } } if ($doClaude) { $claudeDir=Split-Path $CLAUDE_CONFIG -Parent if
-        (-not (Test-Path $claudeDir)) { Write-Info "Claude Desktop not found. Skipping." } else { try {
-        Invoke-ConfigureMcp $CLAUDE_CONFIG $false; Write-OK "Claude Desktop configured." } catch {
-        Write-Err "Claude Desktop: $_" } } }}#============================================================#
-        MAIN#============================================================function Main { Write-Banner
-        [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12 -bor
-        [Net.SecurityProtocolType]::Tls13 try { $py=Install-Python Download-Source Setup-Venv $py Install-ToAppData
-        Configure-Platforms Write-Host "" Write-Host "  ============================================================"
-        -ForegroundColor Green Write-Host "    Installation Complete!" -ForegroundColor Green
-        Write-Host "  ============================================================" -ForegroundColor Green Write-Host ""
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    EVE-MCP Server - One-click Internet Installer
+.DESCRIPTION
+    Installs Python 3.14, downloads eve-mcp source from GitHub,
+    sets up a Python virtual environment, installs all dependencies,
+    and configures agent platforms (Antigravity IDE/CLI, Claude Desktop).
+
+.USAGE
+    irm https://raw.githubusercontent.com/trongthoaivn/eve-mcp/main/startup.ps1 | iex
+
+.NOTES
+    Requires: Windows 10/11, PowerShell 5.1+, Internet access
+#>
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+$GITHUB_REPO    = "trongthoaivn/eve-mcp"
+$GITHUB_BRANCH  = "main"
+$PYTHON_VERSION = "3.14.0b3"
+$PYTHON_MAJOR   = "3.14"
+
+$INSTALL_DIR    = "$env:USERPROFILE\AppData\Local\eve-mcp"
+$TEMP_DIR       = "$env:TEMP\eve-mcp-install"
+$ZIP_PATH       = "$TEMP_DIR\eve-mcp.zip"
+$SOURCE_DIR     = "$TEMP_DIR\source"
+$BUILD_DIR      = "$SOURCE_DIR\build"
+$VENV_DIR       = "$BUILD_DIR\.venv"
+$VENV_PYTHON    = "$VENV_DIR\Scripts\python.exe"
+
+$AGY_IDE_CONFIG = "$env:USERPROFILE\.gemini\config\mcp_config.json"
+$AGY_CLI_CONFIG = "$env:USERPROFILE\.gemini\antigravity-cli\mcp_config.json"
+$CLAUDE_CONFIG  = "$env:APPDATA\Claude\claude_desktop_config.json"
+$AGY_IDE_SKILLS = "$env:USERPROFILE\.gemini\config\skills"
+$AGY_CLI_SKILLS = "$env:USERPROFILE\.gemini\antigravity-cli\skills"
+
+# ============================================================
+# HELPERS
+# ============================================================
+function Write-Banner {
+    Write-Host ""
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host "    EVE-MCP Server  |  Internet Installer"                       -ForegroundColor Cyan
+    Write-Host "    Repository : https://github.com/$GITHUB_REPO"               -ForegroundColor Cyan
+    Write-Host "    Python     : $PYTHON_VERSION"                                -ForegroundColor Cyan
+    Write-Host "  ============================================================" -ForegroundColor Cyan
+    Write-Host ""
+}
+
+function Write-Step([string]$msg)  { Write-Host ""; Write-Host "  [STEP] $msg" -ForegroundColor Yellow }
+function Write-OK([string]$msg)    { Write-Host "         [OK]  $msg" -ForegroundColor Green }
+function Write-Info([string]$msg)  { Write-Host "         [..]  $msg" -ForegroundColor Gray }
+function Write-Err([string]$msg)   { Write-Host "         [!!]  $msg" -ForegroundColor Red }
+
+function Invoke-WithRetry([scriptblock]$action, [int]$retries = 3) {
+    for ($i = 1; $i -le $retries; $i++) {
+        try { & $action; return } catch {
+            if ($i -eq $retries) { throw }
+            Write-Info "Retry $i/$retries ..."
+            Start-Sleep -Seconds 3
+        }
+    }
+}
+
+# ============================================================
+# STEP 1: Check / Install Python 3.14
+# ============================================================
+function Install-Python {
+    Write-Step "1/5  Checking Python $PYTHON_MAJOR ..."
+
+    $pythonExe = $null
+
+    # Check py launcher
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        $ver = (& py "-$PYTHON_MAJOR" --version 2>&1)
+        if ($LASTEXITCODE -eq 0 -and "$ver" -match "Python $PYTHON_MAJOR") {
+            Write-OK "Found via py launcher: $ver"
+            return "py"
+        }
+    }
+
+    # Check python in PATH
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        $ver = (& python --version 2>&1)
+        if ("$ver" -match "Python $PYTHON_MAJOR") {
+            Write-OK "Found in PATH: $ver"
+            return "python"
+        }
+    }
+
+    # Download and install
+    $arch         = if ([System.Environment]::Is64BitOperatingSystem) { "amd64" } else { "win32" }
+    $pyInstaller  = "$TEMP_DIR\python-$PYTHON_VERSION-$arch.exe"
+    $pyUrl        = "https://www.python.org/ftp/python/$PYTHON_VERSION/python-$PYTHON_VERSION-$arch.exe"
+
+    New-Item -ItemType Directory -Force -Path $TEMP_DIR | Out-Null
+
+    Write-Info "Downloading Python $PYTHON_VERSION from python.org ..."
+    Invoke-WithRetry { Invoke-WebRequest -Uri $pyUrl -OutFile $pyInstaller -UseBasicParsing }
+    Write-OK "Downloaded Python installer."
+
+    Write-Info "Installing Python $PYTHON_VERSION (silent) ..."
+    $args = "/quiet InstallAllUsers=0 PrependPath=1 Include_pip=1 Include_test=0 Include_launcher=1"
+    $proc = Start-Process -FilePath $pyInstaller -ArgumentList $args -Wait -PassThru
+    if ($proc.ExitCode -ne 0) { throw "Python installer failed (exit $($proc.ExitCode))." }
+    Write-OK "Python installed."
+
+    # Refresh PATH
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" +
+                [System.Environment]::GetEnvironmentVariable("PATH","User")
+
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        $ver = (& py "-$PYTHON_MAJOR" --version 2>&1)
+        if ($LASTEXITCODE -eq 0) { Write-OK "Verified: $ver"; return "py" }
+    }
+    if (Get-Command python -ErrorAction SilentlyContinue) {
+        $ver = (& python --version 2>&1)
+        if ("$ver" -match "Python $PYTHON_MAJOR") { Write-OK "Verified: $ver"; return "python" }
+    }
+    throw "Python $PYTHON_MAJOR installed but not found in PATH. Please restart PowerShell and re-run."
+}
+
+# ============================================================
+# STEP 2: Download source ZIP from GitHub
+# ============================================================
+function Download-Source {
+    Write-Step "2/5  Downloading source from GitHub ..."
+
+    $zipUrl = "https://github.com/$GITHUB_REPO/archive/refs/heads/$GITHUB_BRANCH.zip"
+
+    if (Test-Path $TEMP_DIR) { Remove-Item -Recurse -Force $TEMP_DIR }
+    New-Item -ItemType Directory -Force -Path $TEMP_DIR  | Out-Null
+    New-Item -ItemType Directory -Force -Path $SOURCE_DIR | Out-Null
+
+    Write-Info "URL: $zipUrl"
+    Invoke-WithRetry { Invoke-WebRequest -Uri $zipUrl -OutFile $ZIP_PATH -UseBasicParsing }
+    Write-OK "Archive downloaded."
+
+    Write-Info "Extracting ..."
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($ZIP_PATH, $TEMP_DIR)
+
+    $extracted = Get-ChildItem -Path $TEMP_DIR -Directory |
+                 Where-Object { $_.Name -like "eve-mcp-*" } |
+                 Select-Object -First 1
+    if (-not $extracted) { throw "Cannot find extracted source folder in $TEMP_DIR" }
+
+    Get-ChildItem -Path $extracted.FullName | Move-Item -Destination $SOURCE_DIR -Force
+    Write-OK "Source ready at: $SOURCE_DIR"
+}
+
+# ============================================================
+# STEP 3: Create venv + install dependencies  (mirrors build.bat)
+# ============================================================
+function Setup-Venv([string]$pythonCmd) {
+    Write-Step "3/5  Setting up virtual environment and installing dependencies ..."
+
+    New-Item -ItemType Directory -Force -Path $BUILD_DIR | Out-Null
+
+    # Stage source files into build dir
+    foreach ($d in @("controllers","services","utilities","skills")) {
+        $src = Join-Path $SOURCE_DIR $d
+        if (Test-Path $src) { Copy-Item -Recurse -Force $src (Join-Path $BUILD_DIR $d) }
+    }
+    foreach ($f in @("server.py","configure_mcp.py","requirements.txt")) {
+        $src = Join-Path $SOURCE_DIR $f
+        if (Test-Path $src) { Copy-Item -Force $src $BUILD_DIR }
+    }
+    Write-OK "Source staged to build dir."
+
+    # Create venv
+    if (Test-Path $VENV_PYTHON) {
+        Write-Info ".venv already exists, skipping creation."
+    } else {
+        Write-Info "Creating .venv ..."
+        if ($pythonCmd -eq "py") {
+            & py "-$PYTHON_MAJOR" -m venv $VENV_DIR
+        } else {
+            & python -m venv $VENV_DIR
+        }
+        if ($LASTEXITCODE -ne 0) { throw "Failed to create virtual environment." }
+        Write-OK ".venv created."
+    }
+
+    # Upgrade pip
+    Write-Info "Upgrading pip ..."
+    & $VENV_PYTHON -m pip install --upgrade pip --quiet
+    Write-OK "pip upgraded."
+
+    # eve-ng (no-deps to avoid conflicts)
+    Write-Info "Installing eve-ng ..."
+    & $VENV_PYTHON -m pip install eve-ng==0.2.7 --no-deps --quiet
+    if ($LASTEXITCODE -ne 0) { throw "pip install failed: eve-ng." }
+
+    # All other dependencies
+    Write-Info "Installing remaining dependencies ..."
+    & $VENV_PYTHON -m pip install `
+        fastmcp==3.4.2 `
+        httpx==0.28.1 `
+        python-dotenv==1.2.2 `
+        netmiko==4.4.0 `
+        requests `
+        "Jinja2<3.1.0" `
+        --quiet
+    if ($LASTEXITCODE -ne 0) { throw "pip install failed." }
+    Write-OK "All dependencies installed."
+}
+
+# ============================================================
+# STEP 4: Copy build to AppData   (mirrors install.bat Step 1)
+# ============================================================
+function Install-ToAppData {
+    Write-Step "4/5  Installing to AppData ..."
+
+    if (-not (Test-Path $INSTALL_DIR)) {
+        New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+    }
+
+    Copy-Item -Recurse -Force "$BUILD_DIR\*" $INSTALL_DIR
+    Write-OK "Installed to: $INSTALL_DIR"
+
+    $envSrc = Join-Path $SOURCE_DIR ".env"
+    if (Test-Path $envSrc) {
+        Copy-Item -Force $envSrc $INSTALL_DIR
+        Write-OK ".env copied."
+    }
+}
+
+# ============================================================
+# STEP 5: Configure agent platforms  (mirrors install.bat Step 2)
+# ============================================================
+function Configure-Platforms {
+    Write-Step "5/5  Configuring agent platforms ..."
+
+    $venvPython   = "$INSTALL_DIR\.venv\Scripts\python.exe"
+    $configScript = "$INSTALL_DIR\configure_mcp.py"
+    $installedPy  = $venvPython  -replace '\\','/'
+    $installedSrv = ($INSTALL_DIR + "\server.py") -replace '\\','/'
+    Write-Info "Using venv: $venvPython"
+
+    # Load .env into process environment so configure_mcp.py can read via os.environ
+    $envFile = Join-Path $INSTALL_DIR ".env"
+    if (Test-Path $envFile) {
+        Get-Content $envFile | ForEach-Object {
+            if ($_ -match '^\s*([^#=][^=]*)=(.*)$') {
+                $k = $Matches[1].Trim(); $v = $Matches[2].Trim()
+                [System.Environment]::SetEnvironmentVariable($k, $v, "Process")
+            }
+        }
+        Write-OK ".env loaded into process environment."
+    }
+
+    Write-Host ""
+    Write-Host "  Select platforms to configure:" -ForegroundColor Cyan
+    Write-Host "    [1] Antigravity IDE"           -ForegroundColor White
+    Write-Host "    [2] Antigravity CLI"           -ForegroundColor White
+    Write-Host "    [3] Claude Desktop"            -ForegroundColor White
+    Write-Host "    [a] All platforms"             -ForegroundColor White
+    Write-Host ""
+    $choice = Read-Host "  Enter choices (e.g: 1 2 or a)"
+
+    $doIde    = $choice -match "[aA]" -or $choice -match "1"
+    $doCli    = $choice -match "[aA]" -or $choice -match "2"
+    $doClaude = $choice -match "[aA]" -or $choice -match "3"
+
+    if (-not ($doIde -or $doCli -or $doClaude)) {
+        Write-Info "No platform selected. Skipping configuration."
+        return
+    }
+
+    # Delegate JSON config writing to configure_mcp.py (Python)
+    function Invoke-ConfigureMcp([string]$configFile, [bool]$withEnv) {
+        $pyArgs = @(
+            $configScript,
+            "--config-file", $configFile,
+            "--command",     $installedPy,
+            "--arg",         $installedSrv
+        )
+        if ($withEnv) { $pyArgs += "--with-env" }
+
+        & $venvPython @pyArgs
+        if ($LASTEXITCODE -ne 0) { throw "configure_mcp.py failed for: $configFile" }
+    }
+
+    function Copy-Skills([string]$dest) {
+        $src = Join-Path $SOURCE_DIR "skills"
+        if (Test-Path $src) {
+            if (-not (Test-Path $dest)) { New-Item -ItemType Directory -Force -Path $dest | Out-Null }
+            Copy-Item -Recurse -Force "$src\*" $dest
+            Write-OK "Skills -> $dest"
+        }
+    }
+
+    if ($doIde) {
+        try { Copy-Skills $AGY_IDE_SKILLS; Invoke-ConfigureMcp $AGY_IDE_CONFIG $true;  Write-OK "Antigravity IDE configured." }
+        catch { Write-Err "Antigravity IDE: $_" }
+    }
+    if ($doCli) {
+        try { Copy-Skills $AGY_CLI_SKILLS; Invoke-ConfigureMcp $AGY_CLI_CONFIG $true;  Write-OK "Antigravity CLI configured." }
+        catch { Write-Err "Antigravity CLI: $_" }
+    }
+    if ($doClaude) {
+        $claudeDir = Split-Path $CLAUDE_CONFIG -Parent
+        if (-not (Test-Path $claudeDir)) {
+            Write-Info "Claude Desktop not found. Skipping."
+        } else {
+            try { Invoke-ConfigureMcp $CLAUDE_CONFIG $false; Write-OK "Claude Desktop configured." }
+            catch { Write-Err "Claude Desktop: $_" }
+        }
+    }
+}
+
+# ============================================================
+# MAIN
+# ============================================================
+function Main {
+    Write-Banner
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor
+                                                   [Net.SecurityProtocolType]::Tls13
+
+    try {
+        $py = Install-Python
+        Download-Source
+        Setup-Venv $py
+        Install-ToAppData
+        Configure-Platforms
+
+        Write-Host ""
+        Write-Host "  ============================================================" -ForegroundColor Green
+        Write-Host "    Installation Complete!" -ForegroundColor Green
+        Write-Host "  ============================================================" -ForegroundColor Green
+        Write-Host ""
         Write-Host "    Python : $INSTALL_DIR\.venv\Scripts\python.exe" -ForegroundColor White
-        Write-Host "    Server : $INSTALL_DIR\server.py" -ForegroundColor White Write-Host ""
-        Write-Host "  Restart your AI agent platform to load the MCP server." -ForegroundColor Yellow Write-Host "" }
-        catch { Write-Host "" Write-Host "  [FAILED] $_" -ForegroundColor Red exit 1 }}Main
+        Write-Host "    Server : $INSTALL_DIR\server.py"                -ForegroundColor White
+        Write-Host ""
+        Write-Host "  Restart your AI agent platform to load the MCP server." -ForegroundColor Yellow
+        Write-Host ""
+    }
+    catch {
+        Write-Host ""
+        Write-Host "  [FAILED] $_" -ForegroundColor Red
+        exit 1
+    }
+}
+
+Main
