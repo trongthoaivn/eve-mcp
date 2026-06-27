@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     EVE-MCP Server - One-click Internet Installer
@@ -278,19 +278,36 @@ function Configure-Platforms {
         $dir = Split-Path $configFile -Parent
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
 
-        $cfg = @{ mcpServers = @{} }
+        # Read existing config preserving all existing servers
+        $cfg = $null
         if (Test-Path $configFile) {
             try {
-                $raw = Get-Content $configFile -Raw
-                if ($raw.Trim()) { $cfg = $raw | ConvertFrom-Json -AsHashtable }
-                if (-not $cfg.ContainsKey("mcpServers")) { $cfg["mcpServers"] = @{} }
-            } catch { $cfg = @{ mcpServers = @{} } }
+                $raw = Get-Content $configFile -Raw -Encoding UTF8
+                if ($raw.Trim()) { $cfg = $raw | ConvertFrom-Json }
+            } catch {
+                Write-Info "Warning: Could not parse existing config, will create new."
+                $cfg = $null
+            }
         }
 
-        $entry = [ordered]@{ command = $installedPy; args = @($installedSrv) }
-        if ($withEnv) { $entry["env"] = $ev }
-        $cfg["mcpServers"]["eve-mcp"] = $entry
-        $cfg | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 $configFile
+        # Ensure cfg and mcpServers exist
+        if ($null -eq $cfg) {
+            $cfg = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
+        }
+        if ($null -eq $cfg.mcpServers) {
+            $cfg | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{}) -Force
+        }
+
+        # Build eve-mcp entry
+        $entry = [PSCustomObject]@{ command = $installedPy; args = @($installedSrv) }
+        if ($withEnv) {
+            $entry | Add-Member -NotePropertyName "env" -NotePropertyValue ([PSCustomObject]$ev) -Force
+        }
+
+        # Only add/update eve-mcp, keep all other servers intact
+        $cfg.mcpServers | Add-Member -NotePropertyName "eve-mcp" -NotePropertyValue $entry -Force
+
+        $cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $configFile -Encoding UTF8
     }
 
     function Copy-Skills([string]$dest) {
