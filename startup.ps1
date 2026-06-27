@@ -237,23 +237,31 @@ function Install-ToAppData {
 function Configure-Platforms {
     Write-Step "5/5  Configuring agent platforms ..."
 
-    $installedPy  = ($INSTALL_DIR + "\.venv\Scripts\python.exe") -replace '\\','/'
+    $venvPython   = "$INSTALL_DIR\.venv\Scripts\python.exe"
+    $activateScript = "$INSTALL_DIR\.venv\Scripts\Activate.ps1"
+    $configScript = "$INSTALL_DIR\configure_mcp.py"
+    $installedPy  = $venvPython  -replace '\\','/'
     $installedSrv = ($INSTALL_DIR + "\server.py") -replace '\\','/'
 
-    # Read .env credentials
-    $ev = @{
-        EVE_HOST=""; EVE_USERNAME=""; EVE_PASSWORD=""
-        EVE_PROTOCOL="http"; EVE_SSL_VERIFY="false"
-        EVE_DISABLE_INSECURE_WARNINGS="true"
+    # Activate virtual environment
+    if (Test-Path $activateScript) {
+        Write-Info "Activating virtual environment ..."
+        & $activateScript
+        Write-OK "Virtual environment activated."
+    } else {
+        Write-Info "Activate.ps1 not found, using full python path directly."
     }
+
+    # Load .env into process environment so configure_mcp.py can read via os.environ
     $envFile = Join-Path $INSTALL_DIR ".env"
     if (Test-Path $envFile) {
         Get-Content $envFile | ForEach-Object {
-            if ($_ -match '^\s*([^#][^=]+)=(.*)$') {
+            if ($_ -match '^\s*([^#=][^=]*)=(.*)$') {
                 $k = $Matches[1].Trim(); $v = $Matches[2].Trim()
-                if ($ev.ContainsKey($k)) { $ev[$k] = $v }
+                [System.Environment]::SetEnvironmentVariable($k, $v, "Process")
             }
         }
+        Write-OK ".env loaded into process environment."
     }
 
     Write-Host ""
@@ -274,40 +282,18 @@ function Configure-Platforms {
         return
     }
 
-    function Set-McpConfig([string]$configFile, [bool]$withEnv) {
-        $dir = Split-Path $configFile -Parent
-        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    # Delegate JSON config writing to configure_mcp.py (Python)
+    function Invoke-ConfigureMcp([string]$configFile, [bool]$withEnv) {
+        $pyArgs = @(
+            $configScript,
+            "--config-file", $configFile,
+            "--command",     $installedPy,
+            "--arg",         $installedSrv
+        )
+        if ($withEnv) { $pyArgs += "--with-env" }
 
-        # Read existing config preserving all existing servers
-        $cfg = $null
-        if (Test-Path $configFile) {
-            try {
-                $raw = Get-Content $configFile -Raw -Encoding UTF8
-                if ($raw.Trim()) { $cfg = $raw | ConvertFrom-Json }
-            } catch {
-                Write-Info "Warning: Could not parse existing config, will create new."
-                $cfg = $null
-            }
-        }
-
-        # Ensure cfg and mcpServers exist
-        if ($null -eq $cfg) {
-            $cfg = [PSCustomObject]@{ mcpServers = [PSCustomObject]@{} }
-        }
-        if ($null -eq $cfg.mcpServers) {
-            $cfg | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue ([PSCustomObject]@{}) -Force
-        }
-
-        # Build eve-mcp entry
-        $entry = [PSCustomObject]@{ command = $installedPy; args = @($installedSrv) }
-        if ($withEnv) {
-            $entry | Add-Member -NotePropertyName "env" -NotePropertyValue ([PSCustomObject]$ev) -Force
-        }
-
-        # Only add/update eve-mcp, keep all other servers intact
-        $cfg.mcpServers | Add-Member -NotePropertyName "eve-mcp" -NotePropertyValue $entry -Force
-
-        $cfg | ConvertTo-Json -Depth 10 | Set-Content -Path $configFile -Encoding UTF8
+        & $venvPython @pyArgs
+        if ($LASTEXITCODE -ne 0) { throw "configure_mcp.py failed for: $configFile" }
     }
 
     function Copy-Skills([string]$dest) {
@@ -320,11 +306,11 @@ function Configure-Platforms {
     }
 
     if ($doIde) {
-        try { Copy-Skills $AGY_IDE_SKILLS; Set-McpConfig $AGY_IDE_CONFIG $true;  Write-OK "Antigravity IDE configured." }
+        try { Copy-Skills $AGY_IDE_SKILLS; Invoke-ConfigureMcp $AGY_IDE_CONFIG $true;  Write-OK "Antigravity IDE configured." }
         catch { Write-Err "Antigravity IDE: $_" }
     }
     if ($doCli) {
-        try { Copy-Skills $AGY_CLI_SKILLS; Set-McpConfig $AGY_CLI_CONFIG $true;  Write-OK "Antigravity CLI configured." }
+        try { Copy-Skills $AGY_CLI_SKILLS; Invoke-ConfigureMcp $AGY_CLI_CONFIG $true;  Write-OK "Antigravity CLI configured." }
         catch { Write-Err "Antigravity CLI: $_" }
     }
     if ($doClaude) {
@@ -332,7 +318,7 @@ function Configure-Platforms {
         if (-not (Test-Path $claudeDir)) {
             Write-Info "Claude Desktop not found. Skipping."
         } else {
-            try { Set-McpConfig $CLAUDE_CONFIG $false; Write-OK "Claude Desktop configured." }
+            try { Invoke-ConfigureMcp $CLAUDE_CONFIG $false; Write-OK "Claude Desktop configured." }
             catch { Write-Err "Claude Desktop: $_" }
         }
     }
