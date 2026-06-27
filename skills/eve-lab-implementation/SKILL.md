@@ -190,8 +190,17 @@ Use this phase when configuring devices in an **existing lab** (either just crea
 
 ### Step 5: Execute and Handle MCP Failures
 
-* **Start Nodes & Wait:** First, use the `eve-mcp:start_all_nodes` tool to start all nodes in the lab. Wait approximately 5 to 10 minutes for all nodes to fully boot up and become ready.
-* **Apply Configurations:** Once nodes are ready, apply configurations using the tools and instructions provided in the `eve-remote-execution` skill (`skills/eve-remote-execution/SKILL.md`).
+* **Apply Startup Configurations (Preferred for QEMU Nodes):** To ensure QEMU nodes (like Cisco `vios` and `viosl2`) boot up with their configurations applied immediately and to avoid Netmiko prompt-matching, EULA, or setup dialog errors:
+  1. Call `eve-mcp:upload_node_config` for each QEMU node to upload and activate (`enable=true`) its startup configuration.
+  2. If the nodes are currently running, call `eve-mcp:stop_node` followed by `eve-mcp:wipe_node` to clear previous runtime states, and then `eve-mcp:start_node` to boot them up fresh with the uploaded startup configurations.
+* **Start Nodes & Wait:** Use `eve-mcp:start_all_nodes` (or `eve-mcp:start_node`) to boot up all nodes. Wait 3 to 5 minutes for them to fully boot.
+* **Configure VPCS Nodes (`vpcs` template):**
+  - VPCS nodes are lightweight emulators and do NOT support Cisco-specific initialization commands (like `terminal width` or `terminal length`).
+  - When configuring VPCS nodes, set the Netmiko `device_type` to `generic_telnet` (to disable Cisco auto-initializations) and send ONLY VPCS-compatible commands:
+    - Request IP via DHCP: `ip dhcp`
+    - Save configuration: `save`
+    - Verify connectivity: `ping <IP>`
+  - If standard Netmiko telnet fails due to prompt scraping issues on VPCS, use raw socket telnet connections as a fallback to execute these simple commands.
 * **CRITICAL:** If an MCP tool or server-side error occurs, do not attempt to write custom python scripts or modify the workspace code to bypass the MCP tool. Instead:
   1. Stop immediately.
   2. Notify the user of the exact error and description.
@@ -216,6 +225,7 @@ Use this phase when configuring devices in an **existing lab** (either just crea
 
 ### Lab Configuration (Phase 2)
 - `eve-mcp:get_lab_topology`: Get topology data to cross-check.
+- `eve-mcp:upload_node_config` / `eve-mcp:enable_node_config`: Upload and enable startup configurations.
 - `eve-mcp:remote_config` / `eve-mcp:ssh_configure`: Apply drafted commands.
 - `eve-mcp:remote_command` / `eve-mcp:ssh_run_command`: Run verification commands.
 

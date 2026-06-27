@@ -28,12 +28,17 @@ To interact directly with the operating system (CLI) of EVE-NG nodes via console
      - Refer to [Cisco IOS Patterns](/skills/cisco-ios-patterns/SKILL.md) for detail on prompt hierarchies and commands.
 
 4. **Remote Console Operations (Non-SSH):**
-   * Use `remote_command` to send a single command or keystrokes to a node console.
-   * Use `remote_commands` to run multiple lines/commands sequentially.
-   * Use `remote_config` to send a multi-line configuration block over the node console connection.
+   * Use `remote_node` to connect via console port and execute commands.
+   * **Alternative: Upload Startup Configuration (Highly Reliable):** If interactive console configuration via `remote_node` fails due to Netmiko prompt-matching, EULA, or initialization errors (e.g., `terminal width 511` error):
+     - Use `eve-mcp:upload_node_config` to upload and activate (`enable=true`) the startup configuration directly.
+     - If the node is currently running, stop the node (`eve-mcp:stop_node`), wipe the node (`eve-mcp:wipe_node`) to clear runtime state, and start it again (`eve-mcp:start_node`). The device will boot directly with the correct configuration.
    * **Bypassing Initial Configuration Dialog (First Boot Gotcha):** Freshly booted devices (e.g. Cisco vIOS L2 switches) often display an initial configuration wizard asking `Would you like to enter the initial configuration dialog? [yes/no]:`. 
      - *Problem:* While stuck on this prompt, standard MCP tools like `remote_node` (using Netmiko) will fail with a `Login failed` error because they expect a standard `Switch>` or `Switch#` prompt.
      - *Solution:* Use the `eve-mcp:bypass_initial_config` tool to automatically connect via raw TCP socket and send `no` to bypass the prompt. Note: You must wait 3-5 minutes after running this bypass before proceeding with further tool executions to ensure the device has fully completed its boot process. **Important:** After the bypass completes, you must set the hostname of the device (e.g., via `remote_node` with config commands) before proceeding with other configurations. Once ready, you can use the standard MCP remote execution tools.
+   * **Configuring VPCS Nodes (`vpcs` template):**
+     - VPCS nodes are lightweight emulators and do NOT support Cisco-specific initialization commands (like `terminal width` or `terminal length`).
+     - When configuring VPCS nodes, set the Netmiko `device_type` to `generic_telnet` and only run VPCS-compatible commands (e.g., `ip dhcp` to obtain IP, `save` to save config, `ping` to test connectivity).
+     - If standard Netmiko telnet fails due to prompt scraping issues on VPCS (`PC1>`), send an empty string `""` command first to wake up the prompt, or use raw socket telnet connections as a fallback.
 
 5. **SSH-Based Configuration (Direct Management Network):**
    * If the node has management IP connectivity and SSH is enabled, use `ssh_run_command` to execute shell or CLI commands.
@@ -44,7 +49,8 @@ To interact directly with the operating system (CLI) of EVE-NG nodes via console
    * **CRITICAL:** When encountering an error on the MCP (Server/Tool) side that cannot be fixed, you must stop immediately and notify the user. Under no circumstances should you create standalone scripts or code to run outside the MCP system.
 
 ## Context & Tools
-- `eve-mcp:remote_node`: Retrieve telnet/vnc connection URLs.
+- `eve-mcp:remote_node`: Retrieve telnet/vnc connection URLs and execute console commands.
+- `eve-mcp:upload_node_config` / `eve-mcp:enable_node_config`: Upload and enable startup configurations.
 - `eve-mcp:remote_command`: Send console inputs/commands to a node.
 - `eve-mcp:remote_commands`: Send sequence of console inputs.
 - `eve-mcp:remote_config`: Apply configuration commands via console.
