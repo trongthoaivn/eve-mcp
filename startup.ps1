@@ -193,7 +193,7 @@ function Setup-Venv([string]$pythonCmd) {
     Write-OK "pip upgraded."
 
     # eve-ng (no-deps to avoid conflicts)
-    Write-Info "Installing eve-ng==0.2.7 (no-deps) ..."
+    Write-Info "Installing eve-ng ..."
     & $VENV_PYTHON -m pip install eve-ng==0.2.7 --no-deps --quiet
     if ($LASTEXITCODE -ne 0) { throw "pip install failed: eve-ng." }
 

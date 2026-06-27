@@ -6,7 +6,6 @@
 .eve_session.json
 
 # --- Environment / secrets ---
-.env
 .env.*
 !.env.example
 
