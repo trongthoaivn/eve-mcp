@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<lab name="STP" id="d35a1ed1-ba38-4be2-88c2-7fda3c22ba6c" version="1" author="Andrea Dainese">
+  <description>A very simple lab about STP protocol. Students will discover how STP works, features, critical issues and how to enforce spanning tree topology to make a robust, resilient architecture.</description>
+  <body>## System requirements
+
+* RAM: 4GB
+* vCPU: 2
+* Image: vios_l2-ADVENTERPRISEK9-M 15.2(4.0.55)E</body>
+  <topology>
+    <nodes>
+      <!--
+        Node attributes:
+        - id:        Unique integer, sequential starting from 1
+        - name:      Hostname / label
+        - type:      "qemu" | "dynamips" | "iol"
+        - template:  Template name matching EVE-NG (e.g. "viosl2", "iosv", "csr1000v")
+        - image:     Exact image filename on the server
+        - console:   "telnet" | "vnc"
+        - cpu:       Number of vCPUs
+        - ram:       RAM in MB
+        - ethernet:  Total number of Ethernet interfaces
+        - uuid:      Unique UUID v4
+        - delay:     Startup delay in seconds
+        - icon:      Icon filename (e.g. "Switch.png", "Router.png")
+        - config:    "1" if startup config provided in <objects><configs>, else "0"
+        - left/top:  Canvas position in pixels
+      -->
+      <node id="1" name="SW5" type="qemu" template="viosl2" image="viosl2-adventerprisek9-m-15.0-20140605" console="telnet" cpu="1" ram="768" ethernet="8" uuid="ebf00c7e-f096-4a20-9140-5bb8e711a45b" delay="0" icon="Switch.png" config="1" left="177" top="462">
+        <!--
+          Interface attributes:
+          - id:          Zero-based interface index (Gi0/0 = 0, Gi0/1 = 1, Gi1/0 = 4, etc.)
+          - name:        Interface display name
+          - type:        "ethernet" | "serial"
+          - network_id:  References a <network> id to form the connection
+          
+          Only list interfaces that are connected to a network.
+          Unconnected interfaces can be omitted.
+        -->
+        <interface id="0" name="Gi0/0" type="ethernet" network_id="11"/>
+        <interface id="1" name="Gi0/1" type="ethernet" network_id="11"/>
+      </node>
+      <node id="2" name="SW2" type="qemu" template="viosl2" image="viosl2-adventerprisek9-m-15.0-20140605" console="telnet" cpu="1" ram="768" ethernet="8" uuid="a1b2c3d4-e5f6-7890-abcd-ef1234567890" delay="0" icon="Switch.png" config="1" left="317" top="62">
+        <interface id="0" name="Gi0/0" type="ethernet" network_id="2"/>
+        <interface id="1" name="Gi0/1" type="ethernet" network_id="1"/>
+        <interface id="2" name="Gi0/2" type="ethernet" network_id="7"/>
+        <interface id="3" name="Gi0/3" type="ethernet" network_id="8"/>
+        <interface id="4" name="Gi1/0" type="ethernet" network_id="9"/>
+        <interface id="5" name="Gi1/1" type="ethernet" network_id="10"/>
+      </node>
+      <node id="3" name="SW3" type="qemu" template="viosl2" image="viosl2-adventerprisek9-m-15.0-20140605" console="telnet" cpu="1" ram="768" ethernet="8" uuid="b2c3d4e5-f6a7-8901-bcde-f12345678901" delay="0" icon="Switch.png" config="1" left="57" top="242">
+        <interface id="0" name="Gi0/0" type="ethernet" network_id="4"/>
+        <interface id="1" name="Gi0/1" type="ethernet" network_id="3"/>
+        <interface id="2" name="Gi0/2" type="ethernet" network_id="8"/>
+        <interface id="3" name="Gi0/3" type="ethernet" network_id="7"/>
+        <interface id="4" name="Gi1/0" type="ethernet" network_id="11"/>
+        <interface id="5" name="Gi1/1" type="ethernet" network_id="11"/>
+      </node>
+      <node id="4" name="SW4" type="qemu" template="viosl2" image="viosl2-adventerprisek9-m-15.0-20140605" console="telnet" cpu="1" ram="768" ethernet="8" uuid="c3d4e5f6-a7b8-9012-cdef-123456789012" delay="0" icon="Switch.png" config="1" left="307" top="252">
+        <interface id="0" name="Gi0/0" type="ethernet" network_id="6"/>
+        <interface id="1" name="Gi0/1" type="ethernet" network_id="5"/>
+        <interface id="2" name="Gi0/2" type="ethernet" network_id="10"/>
+        <interface id="3" name="Gi0/3" type="ethernet" network_id="9"/>
+        <interface id="4" name="Gi1/0" type="ethernet" network_id="11"/>
+        <interface id="5" name="Gi1/1" type="ethernet" network_id="11"/>
+      </node>
+      <node id="5" name="SW1" type="qemu" template="viosl2" image="viosl2-adventerprisek9-m-15.0-20140605" console="telnet" cpu="1" ram="768" ethernet="8" uuid="d4e5f6a7-b8c9-0123-defa-234567890123" delay="0" icon="Switch.png" config="1" left="67" top="62">
+        <interface id="0" name="Gi0/0" type="ethernet" network_id="1"/>
+        <interface id="1" name="Gi0/1" type="ethernet" network_id="2"/>
+        <interface id="2" name="Gi0/2" type="ethernet" network_id="3"/>
+        <interface id="3" name="Gi0/3" type="ethernet" network_id="4"/>
+        <interface id="4" name="Gi1/0" type="ethernet" network_id="5"/>
+        <interface id="5" name="Gi1/1" type="ethernet" network_id="6"/>
+      </node>
+    </nodes>
+    <networks>
+      <!--
+        Network attributes:
+        - id:        Unique integer, referenced by interface network_id
+        - type:      "bridge" for L2 segments (most common)
+        - name:      Descriptive label
+        - left/top:  Canvas position (place between connected nodes)
+      -->
+      <network id="1" type="bridge" name="SW1 to SW2 (1)" left="162" top="56"/>
+      <network id="2" type="bridge" name="SW1 to SW2 (2)" left="162" top="86"/>
+      <network id="3" type="bridge" name="SW1 to SW3 (1)" left="12" top="146"/>
+      <network id="4" type="bridge" name="SW1 to SW3 (2)" left="12" top="176"/>
+      <network id="5" type="bridge" name="SW1 to SW4 (1)" left="162" top="146"/>
+      <network id="6" type="bridge" name="SW1 to SW4 (2)" left="162" top="176"/>
+      <network id="7" type="bridge" name="SW2 to SW3 (1)" left="312" top="146"/>
+      <network id="8" type="bridge" name="SW2 to SW3 (2)" left="312" top="176"/>
+      <network id="9" type="bridge" name="SW2 to SW4 (1)" left="162" top="206"/>
+      <network id="10" type="bridge" name="SW2 to SW4 (2)" left="162" top="236"/>
+      <network id="11" type="bridge" name="Hub" left="157" top="340"/>
+    </networks>
+  </topology>
+  <objects>
+    <configs>
+      <!--
+        Startup configs are base64-encoded and keyed by node id.
+        The config attribute on the <node> element must be set to "1"
+        when a config is provided here.
+        
+        To encode: base64_encode(full_startup_config_text)
+        Example decoded config for SW5 (id=1):
+          hostname SW5
+          vtp mode transparent
+          no ip domain-lookup
+          !
+          interface GigabitEthernet0/0
+           description Access Hub
+           switchport mode access
+           no shutdown
+          ...
+      -->
+      <config id="1">aG9zdG5hbWUgU1c1CnZ0cCBtb2RlIHRyYW5zcGFyZW50Cm5vIGlwIGRvbWFpbi1sb29rdXAKIQppbnRlcmZhY2UgR2lnYWJpdEV0aGVybmV0MC8wCiBkZXNjcmlwdGlvbiBBY2Nlc3MgSHViCiBzd2l0Y2hwb3J0IG1vZGUgYWNjZXNzCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQwLzEKIGRlc2NyaXB0aW9uIEFjY2VzcyBIdWIKIHN3aXRjaHBvcnQgbW9kZSBhY2Nlc3MKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIFZsYW4xCiBpcCBhZGRyZXNzIDEwLjAuMS41IDI1NS4yNTUuMjU1LjAKIG5vIHNodXRkb3duCiEKbm8gYmFubmVyIGV4ZWMKbm8gYmFubmVyIGluY29taW5nCm5vIGJhbm5lciBsb2dpbgplbmQK</config>
+      <config id="2">aG9zdG5hbWUgU1cyCnZ0cCBtb2RlIHRyYW5zcGFyZW50Cm5vIGlwIGRvbWFpbi1sb29rdXAKdmxhbiAyIAohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQwLzAKIGRlc2NyaXB0aW9uIFRydW5rIFNXMTpnMC8xCiBzd2l0Y2hwb3J0IHRydW5rIGVuY2Fwc3VsYXRpb24gZG90MXEKIHN3aXRjaHBvcnQgbW9kZSB0cnVuawogbm8gc2h1dGRvd24KIQppbnRlcmZhY2UgR2lnYWJpdEV0aGVybmV0MC8xCiBkZXNjcmlwdGlvbiBUcnVuayBTVzE6ZzAvMAogc3dpdGNocG9ydCB0cnVuayBlbmNhcHN1bGF0aW9uIGRvdDFxCiBzd2l0Y2hwb3J0IG1vZGUgdHJ1bmsKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIEdpZ2FiaXRFdGhlcm5ldDAvMgogZGVzY3JpcHRpb24gVHJ1bmsgU1czOmcwLzMKIHN3aXRjaHBvcnQgdHJ1bmsgZW5jYXBzdWxhdGlvbiBkb3QxcQogc3dpdGNocG9ydCBtb2RlIHRydW5rCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQwLzMKIGRlc2NyaXB0aW9uIFRydW5rIFNXMzpnMC8yCiBzd2l0Y2hwb3J0IHRydW5rIGVuY2Fwc3VsYXRpb24gZG90MXEKIHN3aXRjaHBvcnQgbW9kZSB0cnVuawogbm8gc2h1dGRvd24KIQppbnRlcmZhY2UgR2lnYWJpdEV0aGVybmV0MS8wCiBkZXNjcmlwdGlvbiBUcnVuayBTVzQ6ZzAvMwogc3dpdGNocG9ydCB0cnVuayBlbmNhcHN1bGF0aW9uIGRvdDFxCiBzd2l0Y2hwb3J0IG1vZGUgdHJ1bmsKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIEdpZ2FiaXRFdGhlcm5ldDEvMQogZGVzY3JpcHRpb24gVHJ1bmsgU1c0OmcwLzIKIHN3aXRjaHBvcnQgdHJ1bmsgZW5jYXBzdWxhdGlvbiBkb3QxcQogc3dpdGNocG9ydCBtb2RlIHRydW5rCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBWbGFuMQogaXAgYWRkcmVzcyAxMC4wLjEuMiAyNTUuMjU1LjI1NS4wCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBWbGFuMgogaXAgYWRkcmVzcyAxMC4wLjIuMiAyNTUuMjU1LjI1NS4wCiBubyBzaHV0ZG93bgohCm5vIGJhbm5lciBleGVjCm5vIGJhbm5lciBpbmNvbWluZwpubyBiYW5uZXIgbG9naW4KZW5kCg==</config>
+      <config id="3">aG9zdG5hbWUgU1czCnZ0cCBtb2RlIHRyYW5zcGFyZW50Cm5vIGlwIGRvbWFpbi1sb29rdXAKdmxhbiAyIAohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQwLzAKIGRlc2NyaXB0aW9uIFRydW5rIFNXMTpnMC8zCiBzd2l0Y2hwb3J0IHRydW5rIGVuY2Fwc3VsYXRpb24gZG90MXEKIHN3aXRjaHBvcnQgbW9kZSB0cnVuawogbm8gc2h1dGRvd24KIQppbnRlcmZhY2UgR2lnYWJpdEV0aGVybmV0MC8xCiBkZXNjcmlwdGlvbiBUcnVuayBTVzE6ZzAvMgogc3dpdGNocG9ydCB0cnVuayBlbmNhcHN1bGF0aW9uIGRvdDFxCiBzd2l0Y2hwb3J0IG1vZGUgdHJ1bmsKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIEdpZ2FiaXRFdGhlcm5ldDAvMgogZGVzY3JpcHRpb24gVHJ1bmsgU1cyOmcwLzMKIHN3aXRjaHBvcnQgdHJ1bmsgZW5jYXBzdWxhdGlvbiBkb3QxcQogc3dpdGNocG9ydCBtb2RlIHRydW5rCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQwLzMKIGRlc2NyaXB0aW9uIFRydW5rIFNXMjpnMC8yCiBzd2l0Y2hwb3J0IHRydW5rIGVuY2Fwc3VsYXRpb24gZG90MXEKIHN3aXRjaHBvcnQgbW9kZSB0cnVuawogbm8gc2h1dGRvd24KIQppbnRlcmZhY2UgR2lnYWJpdEV0aGVybmV0MS8wCiBkZXNjcmlwdGlvbiBBY2Nlc3MgSHViCiBzd2l0Y2hwb3J0IG1vZGUgYWNjZXNzCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQxLzEKIGRlc2NyaXB0aW9uIEFjY2VzcyBIdWIKIHN3aXRjaHBvcnQgbW9kZSBhY2Nlc3MKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIFZsYW4xCiBpcCBhZGRyZXNzIDEwLjAuMS4zIDI1NS4yNTUuMjU1LjAKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIFZsYW4yCiBpcCBhZGRyZXNzIDEwLjAuMi4zIDI1NS4yNTUuMjU1LjAKIG5vIHNodXRkb3duCiEKbm8gYmFubmVyIGV4ZWMKbm8gYmFubmVyIGluY29taW5nCm5vIGJhbm5lciBsb2dpbgplbmQK</config>
+      <config id="4">aG9zdG5hbWUgU1c0CnZ0cCBtb2RlIHRyYW5zcGFyZW50Cm5vIGlwIGRvbWFpbi1sb29rdXAKdmxhbiAyIAohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQwLzAKIGRlc2NyaXB0aW9uIFRydW5rIFNXMTpnMS8xCiBzd2l0Y2hwb3J0IHRydW5rIGVuY2Fwc3VsYXRpb24gZG90MXEKIHN3aXRjaHBvcnQgbW9kZSB0cnVuawogbm8gc2h1dGRvd24KIQppbnRlcmZhY2UgR2lnYWJpdEV0aGVybmV0MC8xCiBkZXNjcmlwdGlvbiBUcnVuayBTVzE6ZzEvMAogc3dpdGNocG9ydCB0cnVuayBlbmNhcHN1bGF0aW9uIGRvdDFxCiBzd2l0Y2hwb3J0IG1vZGUgdHJ1bmsKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIEdpZ2FiaXRFdGhlcm5ldDAvMgogZGVzY3JpcHRpb24gVHJ1bmsgU1cyOmcxLzEKIHN3aXRjaHBvcnQgdHJ1bmsgZW5jYXBzdWxhdGlvbiBkb3QxcQogc3dpdGNocG9ydCBtb2RlIHRydW5rCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQwLzMKIGRlc2NyaXB0aW9uIFRydW5rIFNXMjpnMS8wCiBzd2l0Y2hwb3J0IHRydW5rIGVuY2Fwc3VsYXRpb24gZG90MXEKIHN3aXRjaHBvcnQgbW9kZSB0cnVuawogbm8gc2h1dGRvd24KIQppbnRlcmZhY2UgR2lnYWJpdEV0aGVybmV0MS8wCiBkZXNjcmlwdGlvbiBBY2Nlc3MgSHViCiBzd2l0Y2hwb3J0IG1vZGUgYWNjZXNzCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQxLzEKIGRlc2NyaXB0aW9uIEFjY2VzcyBIdWIKIHN3aXRjaHBvcnQgbW9kZSBhY2Nlc3MKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIFZsYW4xCiBpcCBhZGRyZXNzIDEwLjAuMS40IDI1NS4yNTUuMjU1LjAKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIFZsYW4yCiBpcCBhZGRyZXNzIDEwLjAuMi40IDI1NS4yNTUuMjU1LjAKIG5vIHNodXRkb3duCiEKbm8gYmFubmVyIGV4ZWMKbm8gYmFubmVyIGluY29taW5nCm5vIGJhbm5lciBsb2dpbgplbmQK</config>
+      <config id="5">aG9zdG5hbWUgU1cxCnZ0cCBtb2RlIHRyYW5zcGFyZW50Cm5vIGlwIGRvbWFpbi1sb29rdXAKdmxhbiAyIAohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQwLzAKIGRlc2NyaXB0aW9uIFRydW5rIFNXMjpnMC8xCiBzd2l0Y2hwb3J0IHRydW5rIGVuY2Fwc3VsYXRpb24gZG90MXEKIHN3aXRjaHBvcnQgbW9kZSB0cnVuawogbm8gc2h1dGRvd24KIQppbnRlcmZhY2UgR2lnYWJpdEV0aGVybmV0MC8xCiBkZXNjcmlwdGlvbiBUcnVuayBTVzI6ZzAvMAogc3dpdGNocG9ydCB0cnVuayBlbmNhcHN1bGF0aW9uIGRvdDFxCiBzd2l0Y2hwb3J0IG1vZGUgdHJ1bmsKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIEdpZ2FiaXRFdGhlcm5ldDAvMgogZGVzY3JpcHRpb24gVHJ1bmsgU1czOmcwLzEKIHN3aXRjaHBvcnQgdHJ1bmsgZW5jYXBzdWxhdGlvbiBkb3QxcQogc3dpdGNocG9ydCBtb2RlIHRydW5rCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBHaWdhYml0RXRoZXJuZXQwLzMKIGRlc2NyaXB0aW9uIFRydW5rIFNXMzpnMC8wCiBzd2l0Y2hwb3J0IHRydW5rIGVuY2Fwc3VsYXRpb24gZG90MXEKIHN3aXRjaHBvcnQgbW9kZSB0cnVuawogbm8gc2h1dGRvd24KIQppbnRlcmZhY2UgR2lnYWJpdEV0aGVybmV0MS8wCiBkZXNjcmlwdGlvbiBUcnVuayBTVzQ6ZzAvMQogc3dpdGNocG9ydCB0cnVuayBlbmNhcHN1bGF0aW9uIGRvdDFxCiBzd2l0Y2hwb3J0IG1vZGUgdHJ1bmsKIG5vIHNodXRkb3duCiEKaW50ZXJmYWNlIEdpZ2FiaXRFdGhlcm5ldDEvMQogZGVzY3JpcHRpb24gVHJ1bmsgU1c0OmcwLzAKIHN3aXRjaHBvcnQgdHJ1bmsgZW5jYXBzdWxhdGlvbiBkb3QxcQogc3dpdGNocG9ydCBtb2RlIHRydW5rCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBWbGFuMQogaXAgYWRkcmVzcyAxMC4wLjEuMSAyNTUuMjU1LjI1NS4wCiBubyBzaHV0ZG93bgohCmludGVyZmFjZSBWbGFuMgogaXAgYWRkcmVzcyAxMC4wLjIuMSAyNTUuMjU1LjI1NS4wCiBubyBzaHV0ZG93bgohCm5vIGJhbm5lciBleGVjCm5vIGJhbm5lciBpbmNvbWluZwpubyBiYW5uZXIgbG9naW4KZW5kCg==</config>
+    </configs>
+  </objects>
+</lab>

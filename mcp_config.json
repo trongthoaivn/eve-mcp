@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "eve-mcp": {
+      "command": "d:/GIT/eve-mcp/.venv/Scripts/python.exe",
+      "args": [
+        "-u",
+        "d:/GIT/eve-mcp/server.py"
+      ],
+      "env": {
+        "EVE_HOST": "192.168.112.128",
+        "EVE_USERNAME": "eve-mcp",
+        "EVE_PASSWORD": "eve",
+        "EVE_PROTOCOL": "http",
+        "EVE_SSL_VERIFY": "false",
+        "EVE_DISABLE_INSECURE_WARNINGS": "true"
+      }
+    }
+  }
+}

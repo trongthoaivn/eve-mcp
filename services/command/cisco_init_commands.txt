@@ -1,0 +1,3 @@
+no logging console
+line con 0
+logging synchronous
