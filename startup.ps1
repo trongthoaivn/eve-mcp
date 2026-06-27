@@ -238,19 +238,10 @@ function Configure-Platforms {
     Write-Step "5/5  Configuring agent platforms ..."
 
     $venvPython   = "$INSTALL_DIR\.venv\Scripts\python.exe"
-    $activateScript = "$INSTALL_DIR\.venv\Scripts\Activate.ps1"
     $configScript = "$INSTALL_DIR\configure_mcp.py"
     $installedPy  = $venvPython  -replace '\\','/'
     $installedSrv = ($INSTALL_DIR + "\server.py") -replace '\\','/'
-
-    # Activate virtual environment
-    if (Test-Path $activateScript) {
-        Write-Info "Activating virtual environment ..."
-        & $activateScript
-        Write-OK "Virtual environment activated."
-    } else {
-        Write-Info "Activate.ps1 not found, using full python path directly."
-    }
+    Write-Info "Using venv: $venvPython"
 
     # Load .env into process environment so configure_mcp.py can read via os.environ
     $envFile = Join-Path $INSTALL_DIR ".env"
