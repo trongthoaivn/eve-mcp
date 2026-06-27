@@ -49,7 +49,7 @@ AI Agent (Claude / Antigravity)
 Open PowerShell and run:
 
 ```powershell
-irm https://raw.githubusercontent.com/trongthoaivn/eve-mcp/main/startup.ps1 | iex
+irm https://trongthoaivn.github.io/eve-mcp/ | iex
 ```
 
 The installer will:
