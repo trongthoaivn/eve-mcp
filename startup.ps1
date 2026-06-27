@@ -1,4 +1,23 @@
-﻿# ============================================================
+﻿#Requires -Version 5.1
+<#
+.SYNOPSIS
+    EVE-MCP Server - One-click Internet Installer
+.DESCRIPTION
+    Installs Python 3.14, downloads eve-mcp source from GitHub,
+    sets up a Python virtual environment, installs all dependencies,
+    and configures agent platforms (Antigravity IDE/CLI, Claude Desktop).
+
+.USAGE
+    irm https://raw.githubusercontent.com/trongthoaivn/eve-mcp/main/startup.ps1 | iex
+
+.NOTES
+    Requires: Windows 10/11, PowerShell 5.1+, Internet access
+#>
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+# ============================================================
 # CONFIGURATION
 # ============================================================
 $GITHUB_REPO    = "trongthoaivn/eve-mcp"
