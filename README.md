@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # 🌐 EVE-MCP Server
 
@@ -217,17 +217,49 @@ Config file locations per platform:
 | `connect_node_to_node` | Create a link between two nodes |
 | `connect_p2p_interface` | Configure a point-to-point interface |
 
-### SSH Remote Execution (via Netmiko)
+### 🖥️ Async Remote Command & Configuration (Job-Based)
+
+All command execution and configuration tools now operate **asynchronously** using a background job manager. Instead of blocking the event loop, these tools queue the request and immediately return a `job_id`. 
+
+#### 1. Device SSH Tools (via Netmiko)
 
 | Tool | Description |
 |---|---|
-| `ssh_run_command` | SSH into a device and run a single exec-mode command |
-| `ssh_run_commands` | SSH into a device and run multiple exec-mode commands |
-| `ssh_configure` | SSH into a device and push configuration commands |
-| `remote_command` | Run a single command via EVE-NG console |
-| `remote_commands` | Run multiple commands via EVE-NG console |
-| `remote_config` | Push config via EVE-NG console |
-| `remote_node` | Access a node's console session |
+| `ssh_run_command` | SSH into a device and run a single exec-mode command (async) |
+| `ssh_run_commands` | SSH into a device and run multiple exec-mode commands (async) |
+| `ssh_configure` | SSH into a device and push configuration commands (async) |
+
+#### 2. EVE-NG Console Redirection Tools
+
+These tools connect to device console ports (using Telnet/VNC redirected through EVE-NG) to configure devices or run commands when SSH is not yet set up.
+
+| Tool | Description |
+|---|---|
+| `remote_command` | Run a single command on a device via its EVE-NG console port (async) |
+| `remote_commands` | Run multiple commands on a device via its EVE-NG console port (async) |
+| `remote_config` | Push configuration commands to a device via its EVE-NG console port (async) |
+| `remote_node` | General console manager to execute commands/configs on a specific node (async) |
+
+#### 3. Initial Configuration Dialog Bypass
+
+Tools to automatically dismiss the initial configuration dialog ("Would you like to enter...") on freshly booted devices.
+
+| Tool | Description |
+|---|---|
+| `ssh_bypass_console_dialog` | Connect to device console via raw TCP socket and dismiss setup wizard (sync) |
+| `ssh_bypass_and_run_command` | Bypass initial dialog, wait for boot, and run single command (async) |
+| `ssh_bypass_and_run_commands` | Bypass initial dialog, wait for boot, and run multiple commands (async) |
+| `ssh_bypass_and_configure` | Bypass initial dialog, wait for boot, and push config commands (async) |
+
+#### 4. Job Management
+
+Use these tools to poll progress and retrieve results for any of the async tools above:
+
+| Tool | Description |
+|---|---|
+| `ssh_job_status` | Poll job status, execution progress, and error messages |
+| `ssh_job_result` | Retrieve results of a completed job (read-once, evicts job from memory) |
+| `ssh_cancel_job` | Cancel a running background job and release host concurrency lock |
 
 **Supported device types** (Netmiko): `cisco_ios`, `cisco_nxos`, `cisco_xr`, `arista_eos`, `juniper_junos`, `linux`, `huawei`, and [many more](https://github.com/ktbyers/netmiko#supported-platforms).
 
@@ -261,9 +293,11 @@ eve-mcp/
 │   └── remote_controller.py    # SSH/Netmiko MCP tool registrations
 ├── services/
 │   ├── eve_ng_service.py       # EVE-NG REST API client
+│   ├── job_manager_service.py  # Background job manager for async SSH/Console tasks
 │   └── remote_service.py       # Netmiko SSH client
 ├── utilities/
-│   └── sdk_helpers.py          # Shared error-wrapping utilities
+│   ├── sdk_helpers.py          # Shared error-wrapping utilities
+│   └── logging_decorator.py    # Reusable logging decorator with password masking
 ├── skills/                     # AI agent skill packs
 ├── configure_mcp.py            # MCP config writer (used by installers)
 ├── build.bat                   # Build script (venv + deps)

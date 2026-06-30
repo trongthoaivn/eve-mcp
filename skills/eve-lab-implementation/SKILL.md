@@ -191,25 +191,90 @@ Use this phase when configuring devices in an **existing lab** (either just crea
 ### Step 5: Execute and Handle MCP Failures
 
 * **Apply Startup Configurations (Preferred for QEMU Nodes):** To ensure QEMU nodes (like Cisco `vios` and `viosl2`) boot up with their configurations applied immediately and to avoid Netmiko prompt-matching, EULA, or setup dialog errors:
-  1. Call `eve-mcp:upload_node_config` for each QEMU node to upload and activate (`enable=true`) its startup configuration.
-  2. If the nodes are currently running, call `eve-mcp:stop_node` followed by `eve-mcp:wipe_node` to clear previous runtime states, and then `eve-mcp:start_node` to boot them up fresh with the uploaded startup configurations.
-* **Start Nodes & Wait:** Use `eve-mcp:start_all_nodes` (or `eve-mcp:start_node`) to boot up all nodes. Wait 3 to 5 minutes for them to fully boot.
+  1. Call `eve-mcp:upload_node_config` for each node to upload and activate (`enable=true`) its startup configuration.
+  2. If the nodes are currently running, call `eve-mcp:stop_node` → `eve-mcp:wipe_node` (to clear previous runtime/NVRAM state) → `eve-mcp:start_node` to boot them up fresh with the uploaded startup configurations.
+* **Start Nodes & Wait:** Use `eve-mcp:start_all_nodes` (or `eve-mcp:start_node`) to boot up all nodes. Wait **3 to 5 minutes** for them to fully boot before connecting.
+* **⚠️ Async Command/Configuration Job Flow (Mandatory):**
+  All configuration or execution commands sent via SSH (including `ssh_configure`, `ssh_run_command`, `ssh_run_commands` and their `ssh_bypass_and_*` counterparts) and EVE-NG Remote access tools (including `remote_command`, `remote_commands`, `remote_config`, `remote_node`) operate as **non-blocking background jobs**. You must follow these three steps strictly:
+  1. **Submit the job:** Call the tool (e.g. `ssh_configure` or `remote_node`). Save the returned `job_id` immediately.
+     * *Note:* If you get a `DuplicateJobError`, another job is currently active for this device/console. Wait for it to complete or call `ssh_cancel_job` first.
+  2. **Poll status:** Call `ssh_job_status` **every 60 seconds** (do NOT spam calls). Wait until the `status` becomes `completed` or `failed`.
+  3. **Retrieve result:** Once completed, call `ssh_job_result` to get the final output.
+     * *Critical Note:* This is a **read-once** call. The job is evicted (deleted) from memory immediately after this call. **You must store the returned output immediately**.
+     
+     ```mermaid
+     sequenceDiagram
+         autonumber
+         actor AI as AI Agent
+         participant CTRL as Remote Controller
+         participant JOB as Job Manager Service
+         participant DEV as Target Cisco Device
+
+         Note over AI, DEV: 1. SUBMIT PHASE
+         AI->>CTRL: ssh_bypass_and_configure(host, console_port, commands)
+         Note over CTRL: Creates background _task & generates job_key
+         CTRL->>JOB: submit(_task, job_key, ttl)
+         JOB-->>CTRL: Returns job_id ("abc-123")
+         CTRL-->>AI: Returns { job_id: "abc-123", status: "pending" } (Immediately)
+
+         Note over AI, DEV: 2. BACKGROUND TASK EXECUTION & AUTO-BYPASS
+         rect rgb(240, 248, 255)
+             JOB->>DEV: Attempts direct Netmiko SSH connection
+             alt Fails (Stuck on setup dialog)
+                 JOB->>DEV: Opens raw TCP socket to console_port, sends "no\r\n"
+                 Note over JOB: Waits for device to boot (30s poll interval)
+                 JOB->>DEV: Retries Netmiko SSH connection (Success)
+             end
+             JOB->>DEV: Pushes configuration & saves config
+             DEV-->>JOB: Configuration completed
+             Note over JOB: Set status to "completed", saves result
+         end
+
+         Note over AI, DEV: 3. POLLING PHASE (Repeated every 60 seconds)
+         loop Every 60 seconds
+             AI->>JOB: ssh_job_status(job_id="abc-123")
+             JOB-->>AI: Returns current status (running / completed / failed)
+         end
+
+         Note over AI, DEV: 4. RESULT RETRIEVAL & EVICTION
+         AI->>JOB: ssh_job_result(job_id="abc-123")
+         JOB-->>AI: Returns detailed configuration output
+         Note over JOB: Removes job from registry completely (Evict / Read-once)
+         Note over AI: AI stores result in session context and reports to user
+     ```
+
+     ```mermaid
+     stateDiagram-v2
+         [*] --> Pending : submit() called
+         Pending --> Running : Event loop starts the Task
+         Running --> Completed : Command finished successfully
+         Running --> Failed : Exception raised
+         Running --> Timed_Out : Execution exceeded TTL
+         Running --> Cancelled : cancel() called (Key released immediately)
+         
+         state "Evicted (Removed from Registry)" as Evicted
+         
+         Completed --> Evicted : ssh_job_result() called (Read-once)
+         Failed --> Evicted : ssh_job_result() called (Read error)
+         Timed_Out --> Evicted : ssh_job_result() called (Read error)
+         Cancelled --> Evicted : ssh_job_result() called (Cleanup memory)
+         
+         Evicted --> [*]
+     ```
 * **Configure VPCS Nodes (`vpcs` template):**
-  - VPCS nodes are lightweight emulators and do NOT support Cisco-specific initialization commands (like `terminal width` or `terminal length`).
-  - When configuring VPCS nodes, set the Netmiko `device_type` to `generic_telnet` (to disable Cisco auto-initializations) and send ONLY VPCS-compatible commands:
+  - VPCS nodes are lightweight emulators and do NOT support Cisco-specific initialization commands.
+  - When configuring VPCS, set the Netmiko `device_type` to `generic_telnet` and only run VPCS-compatible commands:
     - Request IP via DHCP: `ip dhcp`
     - Save configuration: `save`
     - Verify connectivity: `ping <IP>`
-  - If standard Netmiko telnet fails due to prompt scraping issues on VPCS, use raw socket telnet connections as a fallback to execute these simple commands.
-* **CRITICAL:** If an MCP tool or server-side error occurs, do not attempt to write custom python scripts or modify the workspace code to bypass the MCP tool. Instead:
-  1. Stop immediately.
-  2. Notify the user of the exact error and description.
-  3. Suggest alternative solutions or methods to fix the issue.
-  4. Ask the user for explicit confirmation on whether and how to proceed.
+* **Bypassing Cisco Initial Config Dialog:**
+  - If a Cisco device is stuck on the setup wizard dialog, standard SSH will fail.
+  - Call `eve-mcp:bypass_initial_config` to bypass the wizard via a raw console TCP socket, or use one-shot tools like `ssh_bypass_and_configure` which handle the bypass, sleep/retry, and command push in a single background job.
+* **CRITICAL (MCP/Server Errors):** If an MCP tool or server-side error occurs, **STOP IMMEDIATELY**. Report the detailed error to the user and wait for instructions. Do not write custom scripts or modify workspace code to bypass the error.
 
 ### Step 6: Output Confirmation Results
 
-* Print the verified and confirmed information, including execution logs and successful verification outputs, clearly to the user.
+* Print execution logs, show command outputs, or ping results retrieved from `ssh_job_result` clearly to the user to verify the final network state.
 
 ---
 
@@ -224,10 +289,14 @@ Use this phase when configuring devices in an **existing lab** (either just crea
 - `eve-mcp:list_nodes`: Verify all nodes were created.
 
 ### Lab Configuration (Phase 2)
-- `eve-mcp:get_lab_topology`: Get topology data to cross-check.
+- `eve-mcp:get_lab_topology`: Get topology data to cross-check links.
 - `eve-mcp:upload_node_config` / `eve-mcp:enable_node_config`: Upload and enable startup configurations.
-- `eve-mcp:remote_config` / `eve-mcp:ssh_configure`: Apply drafted commands.
-- `eve-mcp:remote_command` / `eve-mcp:ssh_run_command`: Run verification commands.
+- `eve-mcp:bypass_initial_config`: Bypass Cisco initial configuration dialog via raw socket.
+- `eve-mcp:ssh_configure` / `eve-mcp:ssh_bypass_and_configure` / `eve-mcp:remote_config`: Push configuration (async background job, returns `job_id`).
+- `eve-mcp:ssh_run_command` / `eve-mcp:ssh_bypass_and_run_command` / `eve-mcp:remote_command` / `eve-mcp:remote_node`: Run commands (async background job, returns `job_id`).
+- `eve-mcp:ssh_job_status`: Poll background job status (call every 60 s, works for all SSH and Remote jobs).
+- `eve-mcp:ssh_job_result`: Retrieve job result and evict it from memory (read-once, works for all SSH and Remote jobs).
+- `eve-mcp:ssh_cancel_job`: Cancel a running job and release the lock immediately.
 
 ## Related Skills
 - [EVE-NG Remote Command and Configuration Execution](/skills/eve-remote-execution/SKILL.md)

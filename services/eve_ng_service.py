@@ -39,7 +39,6 @@ import json
 import logging
 import os
 import pathlib
-import socket
 import time
 from typing import Dict, Optional
 
@@ -892,79 +891,3 @@ def connect_p2p_interface(
             path, src_node_id, src_interface, dst_node_id, dst_interface
         )
     )
-
-# ===========================================================================
-# Remote Access / Workarounds
-# ===========================================================================
-
-def bypass_initial_config(path: str, node_id: int) -> Dict:
-    """Connect to a node's console via raw socket and bypass the initial
-    configuration dialog (e.g. 'Would you like to enter the initial configuration dialog? [yes/no]:').
-
-    :param path: lab path including parent folder
-    :param node_id: numeric node ID
-    """
-    
-    node_resp = get_node(path, node_id)
-    if not node_resp or node_resp.get("status") != "success":
-        return {"code": 404, "status": "fail", "message": f"Could not retrieve node {node_id}"}
-    
-    node_data = node_resp.get("data", {})
-    url_str = node_data.get("url", "")
-    port = node_data.get("port")
-    
-    if not port and url_str:
-        if "://" in url_str:
-            try:
-                from urllib.parse import urlparse
-                parsed = urlparse(url_str)
-                if parsed.port:
-                    port = parsed.port
-            except Exception:
-                pass
-        if not port:
-            parts = url_str.split(":")
-            if len(parts) >= 2:
-                try:
-                    port = int(parts[-1])
-                except ValueError:
-                    pass
-
-    if not port:
-        return {"code": 400, "status": "fail", "message": "Could not resolve console port for node"}
-
-    client = _get_client()
-    host = client.host
-    
-    _logger.info("Bypassing initial config for node %s at %s:%s", node_id, host, port)
-    
-    try:
-        with socket.create_connection((host, port), timeout=10) as sock:
-            sock.settimeout(5)
-            # Give the banner a moment to print
-            time.sleep(2)
-            
-            # Read whatever is there
-            try:
-                data = sock.recv(4096).decode("utf-8", errors="ignore")
-                _logger.debug("Initial socket read: %r", data)
-            except socket.timeout:
-                data = ""
-            
-            # Send 'no' and newlines
-            sock.sendall(b"no\r\n")
-            time.sleep(1)
-            sock.sendall(b"\r\n\r\n\r\n")
-            time.sleep(1)
-            
-            # Read result
-            try:
-                data2 = sock.recv(4096).decode("utf-8", errors="ignore")
-                _logger.debug("Socket read after bypass: %r", data2)
-            except socket.timeout:
-                pass
-                
-        return {"status": "success", "message": "Bypass command sent. Please wait 3-5 minutes before executing further commands."}
-    except Exception as e:
-        _logger.error("Error bypassing initial config: %s", e)
-        return {"code": 500, "status": "fail", "message": str(e)}

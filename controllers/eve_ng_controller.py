@@ -36,8 +36,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+import asyncio
 import services.eve_ng_service as svc
 import services.remote_service as remote_svc
+from services.job_manager_service import (
+    job_manager,
+    DuplicateJobError,
+    ProgressReporter,
+)
 from utilities.sdk_helpers import wrap_errors
 
 
@@ -658,7 +664,7 @@ def register(mcp):
     # -----------------------------------------------------------------------
 
     @mcp.tool()
-    def remote_command(
+    async def remote_command(
         host: str,
         username: str,
         password: str,
@@ -672,11 +678,11 @@ def register(mcp):
         expect_string: Optional[str] = None,
         use_textfsm: bool = False,
     ) -> Dict:
-        """SSH into a network device and execute a single exec-mode command.
+        """SSH into a network device and execute a single exec-mode command (async).
 
-        Opens an SSH connection via Netmiko, runs the command, then closes
-        the connection.  Works with any device reachable from the MCP server
-        (including EVE-NG nodes that have management access).
+        The operation is queued as a background job.  The tool returns a
+        ``job_id`` immediately; use ``ssh_job_status`` to poll progress and
+        ``ssh_job_result`` to retrieve the output once the job finishes.
 
         :param host:          Device IP address or hostname
         :param username:      SSH login username
@@ -692,17 +698,38 @@ def register(mcp):
         :param ssh_strict:    Enforce strict SSH host-key checking (default: False)
         :param expect_string: Optional regex pattern to wait for after the command
         :param use_textfsm:   Parse output with TextFSM/NTC templates (default: False)
-        :returns: Dict with 'host', 'device_type', 'command', and 'output' keys.
         """
-        return wrap_errors(
-            remote_svc.run_command,
-            host, username, password, command,
-            device_type, port, secret, timeout, conn_timeout, ssh_strict,
-            expect_string, use_textfsm,
-        )
+        job_key = f"ssh:cmd:{host}"
+        ttl = timeout + conn_timeout + 60
+
+        async def _task(progress: ProgressReporter) -> Dict:
+            await progress(0, f"Connecting to {host}:{port} …")
+            result = await asyncio.to_thread(
+                remote_svc.run_command,
+                host, username, password, command,
+                device_type, port, secret, timeout, conn_timeout, ssh_strict,
+                expect_string, use_textfsm,
+            )
+            await progress(100, "Command completed.")
+            return result
+
+        try:
+            job_id = await job_manager.submit(_task, job_key=job_key, ttl=ttl)
+        except DuplicateJobError as exc:
+            return {"error": str(exc), "job_key": job_key}
+
+        return {
+            "job_id": job_id,
+            "job_key": job_key,
+            "status": "pending",
+            "message": (
+                "Job submitted. Poll ssh_job_status(job_id) every 60 s "
+                "until status is 'completed', then call ssh_job_result(job_id)."
+            ),
+        }
 
     @mcp.tool()
-    def remote_commands(
+    async def remote_commands(
         host: str,
         username: str,
         password: str,
@@ -714,11 +741,10 @@ def register(mcp):
         conn_timeout: int = 10,
         ssh_strict: bool = False,
     ) -> Dict:
-        """SSH into a network device and execute multiple exec-mode commands.
+        """SSH into a network device and execute multiple exec-mode commands (async).
 
         Opens a single SSH connection, runs all commands sequentially in
-        exec mode, then closes the connection.  Results are returned as a
-        list so callers can inspect each command's output individually.
+        exec mode, then closes the connection.  Returns a ``job_id`` immediately.
 
         :param host:         Device IP address or hostname
         :param username:     SSH login username
@@ -730,17 +756,37 @@ def register(mcp):
         :param timeout:      Command read timeout in seconds (default: 30)
         :param conn_timeout: TCP connection timeout in seconds (default: 10)
         :param ssh_strict:   Enforce strict SSH host-key checking (default: False)
-        :returns: Dict with 'host', 'device_type', and 'results' (list of
-                  {command, output} dicts) keys.
         """
-        return wrap_errors(
-            remote_svc.run_commands,
-            host, username, password, commands,
-            device_type, port, secret, timeout, conn_timeout, ssh_strict,
-        )
+        job_key = f"ssh:cmds:{host}"
+        ttl = timeout * len(commands) + conn_timeout + 60
+
+        async def _task(progress: ProgressReporter) -> Dict:
+            await progress(0, f"Connecting to {host}:{port} ({len(commands)} commands) …")
+            result = await asyncio.to_thread(
+                remote_svc.run_commands,
+                host, username, password, commands,
+                device_type, port, secret, timeout, conn_timeout, ssh_strict,
+            )
+            await progress(100, f"All {len(commands)} commands completed.")
+            return result
+
+        try:
+            job_id = await job_manager.submit(_task, job_key=job_key, ttl=ttl)
+        except DuplicateJobError as exc:
+            return {"error": str(exc), "job_key": job_key}
+
+        return {
+            "job_id": job_id,
+            "job_key": job_key,
+            "status": "pending",
+            "message": (
+                "Job submitted. Poll ssh_job_status(job_id) every 60 s "
+                "until status is 'completed', then call ssh_job_result(job_id)."
+            ),
+        }
 
     @mcp.tool()
-    def remote_config(
+    async def remote_config(
         host: str,
         username: str,
         password: str,
@@ -753,11 +799,11 @@ def register(mcp):
         ssh_strict: bool = False,
         save_config: bool = False,
     ) -> Dict:
-        """SSH into a network device and push configuration-mode commands.
+        """SSH into a network device and push configuration-mode commands (async).
 
         Enters configuration mode (e.g. 'conf t' on Cisco IOS), sends all
         commands in sequence, exits config mode, and optionally saves the
-        running-config to startup-config.
+        running-config to startup-config.  Returns a ``job_id`` immediately.
 
         :param host:         Device IP address or hostname
         :param username:     SSH login username
@@ -772,18 +818,38 @@ def register(mcp):
         :param ssh_strict:   Enforce strict SSH host-key checking (default: False)
         :param save_config:  Write running-config to startup-config after
                              applying changes (default: False)
-        :returns: Dict with 'host', 'device_type', 'commands',
-                  'config_output', and 'saved' keys.
         """
-        return wrap_errors(
-            remote_svc.run_config_commands,
-            host, username, password, commands,
-            device_type, port, secret, timeout, conn_timeout, ssh_strict,
-            save_config,
-        )
+        job_key = f"ssh:cfg:{host}"
+        ttl = timeout + conn_timeout + 120
+
+        async def _task(progress: ProgressReporter) -> Dict:
+            await progress(0, f"Connecting to {host}:{port} for config push …")
+            result = await asyncio.to_thread(
+                remote_svc.run_config_commands,
+                host, username, password, commands,
+                device_type, port, secret, timeout, conn_timeout, ssh_strict,
+                save_config,
+            )
+            await progress(100, "Configuration applied.")
+            return result
+
+        try:
+            job_id = await job_manager.submit(_task, job_key=job_key, ttl=ttl)
+        except DuplicateJobError as exc:
+            return {"error": str(exc), "job_key": job_key}
+
+        return {
+            "job_id": job_id,
+            "job_key": job_key,
+            "status": "pending",
+            "message": (
+                "Job submitted. Poll ssh_job_status(job_id) every 60 s "
+                "until status is 'completed', then call ssh_job_result(job_id)."
+            ),
+        }
 
     @mcp.tool()
-    def remote_node(
+    async def remote_node(
         path: str,
         node_id: Optional[int] = None,
         node_name: Optional[str] = None,
@@ -797,10 +863,12 @@ def register(mcp):
         device_type: Optional[str] = None,
         timeout: int = 30,
     ) -> Dict:
-        """Remote into a specific EVE-NG node using its console port and execute commands.
+        """Remote into a specific EVE-NG node using its console port and execute commands (async).
 
         This tool resolves the console connection port and host for the target node,
-        and uses Netmiko to connect and execute show or configuration commands.
+        and submits a background job to run show or configuration commands.
+        Returns a ``job_id`` immediately; use ``ssh_job_status`` to poll progress and
+        ``ssh_job_result`` to retrieve the output once the job finishes.
 
         :param path:            Lab path including parent folder, e.g. '/my_labs/my_lab'
         :param node_id:         Numeric node ID (optional if node_name is provided)
@@ -816,45 +884,8 @@ def register(mcp):
                                 If not specified, it is automatically guessed from the template.
         :param timeout:         Timeout in seconds for operations (default: 30)
         """
-        def _execute_remote(host: str, port: int, dev_type: str):
-            if command:
-                return remote_svc.run_command(
-                    host=host,
-                    username=username,
-                    password=password,
-                    command=command,
-                    device_type=dev_type,
-                    port=port,
-                    secret=secret,
-                    timeout=timeout,
-                )
-            elif commands:
-                return remote_svc.run_commands(
-                    host=host,
-                    username=username,
-                    password=password,
-                    commands=commands,
-                    device_type=dev_type,
-                    port=port,
-                    secret=secret,
-                    timeout=timeout,
-                )
-            elif config_commands:
-                return remote_svc.run_config_commands(
-                    host=host,
-                    username=username,
-                    password=password,
-                    commands=config_commands,
-                    device_type=dev_type,
-                    port=port,
-                    secret=secret,
-                    timeout=timeout,
-                    save_config=save_config,
-                )
-            else:
-                raise ValueError("Must provide one of: command, commands, or config_commands")
-
-        def _resolve_and_execute():
+        # Resolve target node console properties
+        try:
             if node_id is not None:
                 node_resp = svc.get_node(path, node_id)
                 if not node_resp or node_resp.get("status") != "success":
@@ -929,19 +960,82 @@ def register(mcp):
                     dev_type = base_type
             else:
                 dev_type = device_type
+        except Exception as exc:
+            return {"error": str(exc)}
 
-            return _execute_remote(host, port, dev_type)
+        if command:
+            job_key = f"ssh:cmd:{host}:{port}"
+            ttl = timeout + 60
 
-        return wrap_errors(_resolve_and_execute)
+            async def _task(progress: ProgressReporter) -> Dict:
+                await progress(0, f"Connecting to console {host}:{port} …")
+                result = await asyncio.to_thread(
+                    remote_svc.run_command,
+                    host=host,
+                    username=username,
+                    password=password,
+                    command=command,
+                    device_type=dev_type,
+                    port=port,
+                    secret=secret,
+                    timeout=timeout,
+                )
+                await progress(100, "Command completed.")
+                return result
+        elif commands:
+            job_key = f"ssh:cmds:{host}:{port}"
+            ttl = timeout * len(commands) + 60
 
-    @mcp.tool()
-    def bypass_initial_config(path: str, node_id: int) -> Dict:
-        """Connect to a node's console via raw socket and bypass the initial
-        configuration dialog (e.g., sending 'no' to the yes/no prompt).
-        Note: You must wait 3-5 minutes after running this bypass before
-        proceeding with other commands.
+            async def _task(progress: ProgressReporter) -> Dict:
+                await progress(0, f"Connecting to console {host}:{port} ({len(commands)} commands) …")
+                result = await asyncio.to_thread(
+                    remote_svc.run_commands,
+                    host=host,
+                    username=username,
+                    password=password,
+                    commands=commands,
+                    device_type=dev_type,
+                    port=port,
+                    secret=secret,
+                    timeout=timeout,
+                )
+                await progress(100, f"All {len(commands)} commands completed.")
+                return result
+        elif config_commands:
+            job_key = f"ssh:cfg:{host}:{port}"
+            ttl = timeout + 120
 
-        :param path: Lab path including parent folder
-        :param node_id: Numeric node ID
-        """
-        return wrap_errors(svc.bypass_initial_config, path, node_id)
+            async def _task(progress: ProgressReporter) -> Dict:
+                await progress(0, f"Connecting to console {host}:{port} for config push …")
+                result = await asyncio.to_thread(
+                    remote_svc.run_config_commands,
+                    host=host,
+                    username=username,
+                    password=password,
+                    commands=config_commands,
+                    device_type=dev_type,
+                    port=port,
+                    secret=secret,
+                    timeout=timeout,
+                    save_config=save_config,
+                )
+                await progress(100, "Configuration applied.")
+                return result
+        else:
+            return {"error": "Must provide one of: command, commands, or config_commands"}
+
+        try:
+            job_id = await job_manager.submit(_task, job_key=job_key, ttl=ttl)
+        except DuplicateJobError as exc:
+            return {"error": str(exc), "job_key": job_key}
+
+        return {
+            "job_id": job_id,
+            "job_key": job_key,
+            "status": "pending",
+            "message": (
+                "Job submitted. Poll ssh_job_status(job_id) every 60 s "
+                "until status is 'completed', then call ssh_job_result(job_id)."
+            ),
+        }
+
